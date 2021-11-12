@@ -17,9 +17,23 @@ Distributed in memory K/V storage service that supports multicast ordering and g
 	- python multi-threaded handlers 
 	- should not be race condition since single threaded message handler
 
-## algo
+## Global Snapshot
+
+
 - updates global snapshot channels when total or causal deliver() 
 	- i.e. deliver() -> updates channels + KV data list
+
+
+
+
+## Mulitcast Ordering 
+
+
+### Causal Ordering 
+
+
+
+### Total Ordering 
 
 
 
@@ -28,6 +42,13 @@ Distributed in memory K/V storage service that supports multicast ordering and g
 ## Reference:
 
 - UIUC cloud class
+	- https://courses.engr.illinois.edu/cs425/fa2017/lectures.html 
+
+- https://www.youtube.com/watch?v=x0VYs3n2YR4 - Natarajan Meghanathan, Jackson State University
+	- http://www.jsums.edu/compscience/dr-natarajan-meghanathan/
+
+- https://www.youtube.com/watch?v=_t1nyGjPMNc - simulation 
+	- https://github.com/jonanh/PanChat 
 
 - https://www.youtube.com/watch?v=ao58xine3jM - Microsoft Research 
 
