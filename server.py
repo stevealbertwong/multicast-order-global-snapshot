@@ -34,26 +34,26 @@ class GSMOServer:
         self.message_max_size = config.config['message_max_size']
         self.delay_time = config.config['delay_time']
         self.drop_rate = config.config['drop_rate']
-        self.mutex = threading.Lock()    
+
 
         ###################################### 
         # multicast ordering data structure
         ######################################       
-
-        self.buffered_packets_queue = [] ## causal order (out of vector timestamp order)
-        self.sequencer_msg_queue = [] ## total order (out of sequence no. order)
-        self.local_sequence_num = 0 ## total order
         
-        self.global_sequence_num = 0 ## total order: if this node is sequencer, keep global
-        self.ordered_packets_queue = [] ## for both causal n total
-        self.unack_messages = [] ## ack handler periodically resends all unack msgs        
-        self.vector_timestamp = [0] * self.num_processes
-        self.received_msgs_history = [] ## avoid processing dup msgs (due to reliable multicast unack)
+        self.received_msgs_history = [] ## gateway for filtering: avoid processing dup msgs (due to reliable multicast unack)
+        
+        self.buffered_packets_queue = [] ## causal order (out of vector timestamp order)
+        self.vector_timestamp = [0] * self.num_processes        
+        
         self.original_msg_queue = [] ## total order 
+        self.sequencer_msg_queue = [] ## total order (out of sequence no. order)
+        self.global_sequence_num = 0 ## total order: if this node is sequencer, keep global
+        self.local_sequence_num = 0 ## total order
 
 
-        # self.vector_clock ## vector clock could be increased due to own state changes
-        # self.vector_seq_no ## vector seq no only increase when send() to another peer
+        self.unack_messages = [] ## ack handler periodically resends all unack msgs        
+
+
 
         ###################################### 
         # global snapshot algo data structure!!!!
@@ -70,6 +70,22 @@ class GSMOServer:
 
 
         # self.num_channels_recorded = 0 ## end global snapshotting    
+
+
+        ###################################### 
+        # general
+        ######################################  
+        self.state = {"money" : config.config['starting_money'], "iphone" : config.config['starting_iphone']} ## {"money": 10, "iphone": 10}
+        self.outgoing_msg_queue = [] ## (send_time, packet), sorted at all time to just pop()
+        self.incoming_msg_queue = []
+        self.msg_id = 0 ## this node's msg count
+
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM) ## this node's socket, UDP ??
+        self.sockets = [] ## each ps is connected to all ps' sockets
+        init_socket(self)
+
+        self.start_threaded_handlers() 
+
 
         ###################################### 
         # locks
@@ -91,22 +107,6 @@ class GSMOServer:
         self.sequencer_msg_queue_mutex = threading.Lock()
         self.buffered_packets_queue_mutex = threading.Lock()
         self.global_sequence_num_mutex = threading.Lock()
-
-        ###################################### 
-        # general
-        ######################################  
-        self.state = {"money" : config.config['starting_money'], "iphone" : config.config['starting_iphone']} ## {"money": 10, "iphone": 10}
-        self.outgoing_msg_queue = [] ## (send_time, packet), sorted at all time to just pop()
-        self.incoming_msg_queue = []
-        self.msg_id = 0 ## this node's msg count
-
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM) ## this node's socket, UDP ??
-        self.sockets = [] ## each ps is connected to all ps' sockets
-        init_socket(self)
-
-        self.start_threaded_handlers() 
-
-
 
 
         # self.inv_types = {v:k for k, v in types.items()} ## reverse lookup
@@ -240,11 +240,7 @@ class GSMOServer:
     #########################################################################################################
 
   
-    #
-    # self.buffered_packets_queue -> self.ordered_packets_queue
-    # 
-    # 
-    def deliver(self, packet): ## apply() from local buffer to local process
+    def deliver(self, packet):
         """ update() KV data list + timestamps + global snapshots channels if recording"""
         
 
@@ -403,12 +399,14 @@ class GSMOServer:
         buffer before append vector_clock in RAM """
 
         ## 1. if recording channels (marker mode), store all received packets 
-        self.channels_mutex.acquire()
-        for i in range(len(self.channels)): ## num_processes
-            if self.channels[i]['is_recording']:
-                self.channels[i]['packets'].append(packet)
-                self.channels[i]['num_packets'] += 1
-        self.channels_mutex.release()
+        
+        if packet.msg_type == "send_money" or "send_iphone": 
+            for i in range(len(self.channels)): ## num_processes
+                if self.channels[i]['is_recording']:
+                    self.channels_mutex.acquire()
+                    self.channels[i]['packets'].append(packet)
+                    self.channels[i]['num_packets'] += 1
+                    self.channels_mutex.release()
 
         ## 2. reply ack to sender
         ack_packet = Packet(self.sender_id, packet.sender_id, "ack", self.msg_id)
@@ -515,7 +513,7 @@ class GSMOServer:
             self.received_msgs_history_mutex.release()
 
             ## 2.                       
-            if packet.msg_type == "send_money" or "send_iphone":
+            if packet.msg_type == "send_money" or "send_iphone" or "sequencer_msg":
                 # TODO: thread this
                 self.kv_handler(packet)
                 
