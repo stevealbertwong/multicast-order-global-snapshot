@@ -22,7 +22,7 @@ import json
 
 class Packet:
 	def __init__(self, sender_id, receiver_id, msg_type, 
-			msg_id = None, key = None, value = None, vector_timestamp = None, total_seq_no = None, snapshot_id = None):    
+			msg_id = None, key = None, value = None, vector_timestamp = None, seq_no = None, snapshot_id = None):    
     	
 		## every msg must have
 		self.sender_id = sender_id
@@ -34,8 +34,14 @@ class Packet:
 		self.key = key
 		self.value = value	
 		self.vector_timestamp = vector_timestamp
-		self.total_seq_no = total_seq_no
+		self.seq_no = seq_no # total ordering
 		self.snapshot_id = snapshot_id # identify marker msg id
+
+	
+	## class -> string 
+	## https://stackoverflow.com/questions/4932438/how-to-create-a-custom-string-representation-for-a-class-object 
+	def __str__(self):
+		return '::'.join([str(i) for i in self.vector_timestamp])
 
 	# necessary ?? 
 	def get_dest_node_id(self):

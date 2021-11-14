@@ -1,15 +1,3 @@
-#########################################################################################################
-#
-#
-#
-#
-#
-# multi-process simulation with socket
-# 
-# GSMOServer == servers that have the ability to distributed log 
-# 
-#########################################################################################################
-
 #!/usr/bin/env python3
 import logging
 import sys
@@ -50,8 +38,9 @@ def fork_multiple_processes(num_processes):
     processes = []    
 
     for i in range(num_processes):
-        ## python multi-process
-        p = mp.Process(target=GSMOServer(), args=(i))        
+        ## https://docs.python.org/2.7/library/multiprocessing.html
+        p = mp.Process(target=GSMOServer(i), args=(i))        
+        # p = mp.Process(target=GSMOServer(i))
         p.start() 
         processes.append(p)
 

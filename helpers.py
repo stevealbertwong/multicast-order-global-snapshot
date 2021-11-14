@@ -10,13 +10,14 @@
 
 import random as rand
 import time 
+import sys
 import config
 import socket
 
 ## send msg to all known processes -> called by user manually inputing a msg
-def multicast (self, payload, sequencer_msg=False):    
-    for process_id, _ in enumerate(config.config['hosts']):
-        self.push_outgoing_msg_queue(process_id, payload=payload, sequencer_msg=sequencer_msg)
+# def multicast (self, payload, sequencer_msg=False):    
+#     for process_id, _ in enumerate(config.config['hosts']):
+#         self.push_outgoing_msg_queue(process_id, payload=payload, sequencer_msg=sequencer_msg)
     
 
 ## logic specific to type of msg 
@@ -24,26 +25,40 @@ def push_outgoing_msg_queue(self, packet):
     """ Push an outgoing message to the message queue """
     
     # all types of msg have a unique id 
+    self.msg_id_mutex.acquire()
     self.msg_id += 1 
+    self.msg_id_mutex.release()
 
 
-    ## bump vector clock before send()
-    if self.multicast_order == "causal":
-        self.vector_timestamp[self.node_id] += 1
-
-
-    ## for simplicity, only kv pairs implemented reliable multicast, delay, random drop 
+    ## for simplicity, only kv pairs implemented vector clock, reliable multicast, delay, random drop 
     if packet.msg_type == "send_money" or "send_iphone":
+        ## bump vector clock before send()
+        if self.multicast_order == "causal":
+            self.vector_timestamp_mutex.acquire()
+            self.vector_timestamp[self.node_id] += 1
+            self.vector_timestamp_mutex.release()
+        
+        self.unack_messages_mutex.acquire()
         self.unack_messages.append(packet)
+        self.unack_messages_mutex.release()
+        
         if rand.random() <= self.drop_rate: ## simulates random drop, stored in unack_msgs so resend
             return            
+        
         ## buffer before send(), since not using sync code
         send_time = time.time() + rand.uniform(0, 2) # 1234892919.655932 == Tue Feb 17 10:48:39 2009     
     
+        self.outgoing_msg_queue_mutex.acquire()
         self.outgoing_msg_queue.append((send_time, packet)) 
+        ## https://stackoverflow.com/questions/3121979/how-to-sort-list-tuple-of-lists-tuples
+        self.outgoing_msg_queue.sort(key=lambda tup: tup[0]) ## sort by 1st element of tuple 
+        self.outgoing_msg_queue_mutex.release()
     else:
         send_time = time.time()
+        self.outgoing_msg_queue_mutex.acquire()
         self.outgoing_msg_queue.append((send_time, packet)) 
+        self.outgoing_msg_queue.sort(key=lambda tup: tup[0]) ## sort by 1st element of tuple 
+        self.outgoing_msg_queue_mutex.release()
     
 
 
@@ -59,50 +74,52 @@ def push_outgoing_msg_queue(self, packet):
 
 ## TODO -> seems very buggy
 # each ps init sockets with every other ps 
-def init_membership_list(self, sockets): ## sockets = []
-    ports = pick_free_ports(num_processes * (num_processes - 1)) ## os syscall
-
-    ## port_mapping: {(0, 1): (1001, 1002), (1, 2): (1005, 1006), (0, 2): (1003, 1004)}    
-    port_mapping = {}
-    counter = 0
-    for i in range(self.num_processes):
-        for j in range(i + 1, self.num_processes):
-            port_mapping[(i, j)] = (ports[counter], ports[counter + 1])
-            counter = counter + 2
+def init_socket(self): ## sockets = empty []
+    # ports = pick_free_ports(num_processes * (num_processes - 1)) ## os syscall
+    # ## port_mapping: {(0, 1): (1001, 1002), (1, 2): (1005, 1006), (0, 2): (1003, 1004)}    
+    # port_mapping = {}
+    # counter = 0
+    # for i in range(self.num_processes):
+    #     for j in range(i + 1, self.num_processes):
+    #         port_mapping[(i, j)] = (ports[counter], ports[counter + 1])
+    #         counter = counter + 2
     
     ## membership list    
     backlog = 10    
-    for i in range(self.node_id):
+    try:
+        # self.socket.bind(socket.gethostname(), self.port) ## bind your socket with user defined port
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) ## port binding bug: https://stackoverflow.com/questions/5875177/how-to-close-a-socket-left-open-by-a-killed-program
+        self.socket.bind(('', self.port)) ## bind your socket with user defined port
 
-    	## socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        ## socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-
-        server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM) ## UDP ??
-        server_sock.bind((socket.gethostname(), port_mapping[(i, id)][1]))
-        server_sock.listen(backlog)
-        client_sock, (host, client_port) = server_sock.accept()
-        sockets.append(client_sock)
-    sockets.append(None)
-
-    for i in range(self.node_id + 1, self.num_processes):
-        (source_port, destination_port) = port_mapping[(id, i)]
-
-        try:
-            client_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            addr = socket.gethostname()
-            client_sock.bind((addr, source_port))
-            client_sock.connect((addr, destination_port))
-            sockets.append(client_sock)
-        except:
-            print("ERROR : Socket creation failed.")
-            sys.exit(1)
+        self.socket.listen(backlog)
         
+    except:
+        print("ERROR : your own socket creation failed.")
+        sys.exit(1)
 
+
+
+    # for i in range(self.node_id):
+    #     other_ps_ip, other_ps_port = config.config['hosts'][i]
+
+    # 	## socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    #     ## socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+
+    #     try:
+    #         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM) ## UDP ??
+    #         self.socket.bind((socket.gethostname(), self.port)) ## bind your socket with user defined port
+    #         self.socket.listen(backlog)
+    #     except:
+    #         print("ERROR : Socket creation failed.")
+    #         sys.exit(1)
+        
+    #     other_ps_sock, host, client_port = self.socket.accept()
+    #     self.sockets.append(other_ps_sock)
+    # self.sockets.append(None)        
     
-    for i in range(self.num_processes): ## set timeouts for sockets
-        if i == id:
-            continue
-        sockets[i].settimeout(0.01)    
+
+
+
 
 
 #########################################################################################################
